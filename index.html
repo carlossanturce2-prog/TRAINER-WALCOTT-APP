@@ -53,6 +53,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displa
     <button class="btn tool" data-t="pass">➜ Pase</button>
     <button class="btn tool" data-t="run">⇢ Desmarque</button>
     <button class="btn tool" data-t="dribble">〰 Conducción</button>
+    <button class="btn tool" data-t="shot">⚡ Tiro</button>
     <button class="btn tool" data-t="line">─ Línea</button>
     <button class="btn tool" data-t="zone">▭ Zona</button>
     <button class="btn tool" data-t="text">T Texto</button>
@@ -168,6 +169,7 @@ function wave(pts){
   return pts.map((p,i)=>{const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];let tx=b[0]-a[0],ty=b[1]-a[1];const l=Math.hypot(tx,ty)||1;tx/=l;ty/=l;
     const amp=4.5*Math.min(1,(tot-cum[i])/16)*Math.min(1,cum[i]/8),off=amp*Math.sin(cum[i]/18*Math.PI*2);return[p[0]-ty*off,p[1]+tx*off]});
 }
+function offsetPts(pts,d){return pts.map((p,i)=>{const a=pts[Math.max(0,i-1)],b=pts[Math.min(pts.length-1,i+1)];const tx=b[0]-a[0],ty=b[1]-a[1],l=Math.hypot(tx,ty)||1;return[p[0]-ty/l*d,p[1]+tx/l*d]})}
 function textW(o){ctx.font='bold 16px system-ui,sans-serif';return ctx.measureText(o.text).width}
 
 function drawObj(c,o,al){
@@ -179,14 +181,16 @@ function drawObj(c,o,al){
       c.beginPath();c.moveTo(q[0][0],q[0][1]);c.lineTo(q[1][0],q[1][1]);c.lineWidth=4;c.stroke();break}
     case'arrow':{
       const pts=arrowPts(o);if(pts.length<2)break;
+      const shot=o.kind==='shot';
       const path=o.kind==='dribble'?wave(pts):pts;
+      const lines=shot?[offsetPts(pts,-2.8),offsetPts(pts,2.8)]:[path];
       const e=pts[pts.length-1];let k=pts.length-1,acc=0;while(k>0&&acc<10){k--;acc=dist(e,pts[k])}
       const b=pts[k],ang=Math.atan2(e[1]-b[1],e[0]-b[0]);
       c.lineJoin='round';c.lineCap='round';
-      for(let pass=0;pass<2;pass++){c.beginPath();path.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));
-        if(pass===0){c.strokeStyle='rgba(0,0,0,.45)';c.lineWidth=5.5}else{c.strokeStyle=o.color;c.lineWidth=3}
+      for(const ln of lines)for(let pass=0;pass<2;pass++){c.beginPath();ln.forEach((p,i)=>i?c.lineTo(p[0],p[1]):c.moveTo(p[0],p[1]));
+        if(pass===0){c.strokeStyle='rgba(0,0,0,.45)';c.lineWidth=shot?4.5:5.5}else{c.strokeStyle=o.color;c.lineWidth=shot?2.4:3}
         c.setLineDash(o.kind==='run'?[10,7]:[]);c.stroke()}
-      if(o.kind!=='line'){c.setLineDash([]);const dx=Math.cos(ang),dy=Math.sin(ang);c.beginPath();c.moveTo(e[0],e[1]);c.lineTo(e[0]-dx*15-dy*7.5,e[1]-dy*15+dx*7.5);c.lineTo(e[0]-dx*15+dy*7.5,e[1]-dy*15-dx*7.5);c.closePath();c.fillStyle=o.color;c.fill();c.strokeStyle='rgba(0,0,0,.45)';c.lineWidth=1.5;c.stroke()}
+      if(o.kind!=='line'){const hl=shot?20:15,hw=shot?10.5:7.5;c.setLineDash([]);const dx=Math.cos(ang),dy=Math.sin(ang);c.beginPath();c.moveTo(e[0],e[1]);c.lineTo(e[0]-dx*hl-dy*hw,e[1]-dy*hl+dx*hw);c.lineTo(e[0]-dx*hl+dy*hw,e[1]-dy*hl-dx*hw);c.closePath();c.fillStyle=o.color;c.fill();c.strokeStyle='rgba(0,0,0,.45)';c.lineWidth=1.5;c.stroke()}
       break}
     case'cone':{const s=toS(o.x,o.y),z=R()*0.8;c.beginPath();c.moveTo(s[0],s[1]-z);c.lineTo(s[0]+z*0.85,s[1]+z*0.7);c.lineTo(s[0]-z*0.85,s[1]+z*0.7);c.closePath();c.fillStyle=o.color||'#fb8c00';c.fill();c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();break}
     case'ball':{const s=toS(o.x,o.y),z=R()*0.6;c.beginPath();c.arc(s[0],s[1],z,0,7);c.fillStyle='#fff';c.fill();c.strokeStyle='#111';c.lineWidth=2;c.stroke();c.beginPath();c.arc(s[0],s[1],z*0.38,0,7);c.fillStyle='#111';c.fill();break}
@@ -347,27 +351,65 @@ function goFrame(i){if(playing)return;if(i<0||i>=S.frames.length)return;S.cur=i;
 function addFrame(){if(playing)return;const copy=objs().filter(o=>o.type!=='arrow').map(o=>JSON.parse(JSON.stringify(o)));S.frames.splice(S.cur+1,0,{objs:copy});S.cur++;sel=null;hist=[];redo=[];changed();toast('Paso '+(S.cur+1)+': mueve las fichas a su nueva posición')}
 function delFrame(){if(playing)return;if(S.frames.length<2){toast('Tiene que quedar al menos un paso');return}if(!confirm('¿Eliminar este paso?'))return;S.frames.splice(S.cur,1);S.cur=Math.min(S.cur,S.frames.length-1);sel=null;hist=[];redo=[];changed()}
 const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
-function interp(a,b,u){
-  const A=S.frames[a].objs,B=S.frames[b].objs,items=[],bm=new Map(B.map(o=>[o.id,o])),am=new Map(A.map(o=>[o.id,o]));
-  for(const o of A){if(o.type==='arrow'){items.push({o,al:1-u});continue}
-    const n=bm.get(o.id);if(n&&n.type===o.type&&o.x!=null)items.push({o:Object.assign({},o,{x:o.x+(n.x-o.x)*u,y:o.y+(n.y-o.y)*u}),al:1});else items.push({o,al:1-u})}
+/* La pelota va "disparada" (rápida) cuando viaja sola; si un jugador la lleva (conducción), va a la velocidad del jugador */
+function isKick(A,bm,o,n){
+  const dx=n.x-o.x,dy=n.y-o.y,d=Math.hypot(dx,dy);
+  if(d<5)return false;
+  for(const p of A){if(p.type!=='player')continue;const q=bm.get(p.id);if(!q||q.type!=='player')continue;
+    if(Math.hypot(p.x-o.x,p.y-o.y)<4&&Math.hypot((q.x-p.x)-dx,(q.y-p.y)-dy)<0.35*d+2.5)return false}
+  return true;
+}
+function interp(a,b,x,from){
+  const u=ease(x),A=S.frames[a].objs,B=S.frames[b].objs,items=[],bm=new Map(B.map(o=>[o.id,o])),am=new Map(A.map(o=>[o.id,o]));
+  for(let o of A){if(o.type==='arrow'){items.push({o,al:1-u});continue}
+    if(from&&from.id===o.id)o=Object.assign({},o,{x:from.x,y:from.y});
+    const n=bm.get(o.id);
+    if(n&&n.type===o.type&&o.x!=null){let k=u;
+      if(o.type==='ball'&&isKick(A,bm,o,n)){const dur=Math.min(1100,Math.max(350,300+Math.hypot(n.x-o.x,n.y-o.y)*18)),f=Math.min(1,x*MOVE/dur);k=1-Math.pow(1-f,1.7)}
+      items.push({o:Object.assign({},o,{x:o.x+(n.x-o.x)*k,y:o.y+(n.y-o.y)*k}),al:1})}
+    else items.push({o,al:1-u})}
   for(const n of B)if(n.type!=='arrow'&&!am.has(n.id))items.push({o:n,al:u});
   return items;
 }
-const LEAD=600,MOVE=1300;
+const LEAD=600,MOVE=1300,SHOT=650,HOLD=900;
+/* Tiro: si el paso tiene una flecha Tiro y un balón, el balón viaja por esa flecha */
+function arrowAt(a,t){
+  const x0=a.x1,y0=a.y1,x2=a.x2,y2=a.y2;
+  if(a.mx==null)return[x0+(x2-x0)*t,y0+(y2-y0)*t];
+  const cx=2*a.mx-(x0+x2)/2,cy=2*a.my-(y0+y2)/2,u=1-t;
+  return[u*u*x0+2*u*t*cx+t*t*x2,u*u*y0+2*u*t*cy+t*t*y2];
+}
+function shotInfo(fi){
+  const A=S.frames[fi].objs,sh=A.filter(o=>o.type==='arrow'&&o.kind==='shot'),ball=A.find(o=>o.type==='ball');
+  return(sh.length&&ball)?{sh:sh[sh.length-1],ball}:null;
+}
+function shotOffset(info,u){const s0=arrowAt(info.sh,0),s1=arrowAt(info.sh,u);return[s1[0]-s0[0],s1[1]-s0[1]]}
+function shotItems(fi,u){
+  const info=shotInfo(fi),A=S.frames[fi].objs,d=shotOffset(info,u*u);
+  return A.map(o=>o===info.ball?{o:Object.assign({},o,{x:o.x+d[0],y:o.y+d[1]}),al:1}:{o,al:1});
+}
 function play(){
   if(playing){stopPlay();return}
-  if(S.frames.length<2){toast('Agrega al menos 2 pasos con ＋ Paso');return}
+  if(S.frames.length<2&&!shotInfo(0)){toast('Agrega 2 pasos con ＋ Paso, o dibuja un Tiro con el balón');return}
   sel=null;tmp=null;
-  playing={i:S.cur>=S.frames.length-1?0:S.cur,t0:performance.now()};ui();requestAnimationFrame(stepPlay);
+  playing={i:S.cur>=S.frames.length-1?0:S.cur,t0:performance.now(),phase:'lead',from:null};ui();requestAnimationFrame(stepPlay);
 }
 function stopPlay(){if(!playing)return;S.cur=Math.min(playing.i,S.frames.length-1);playing=null;hist=[];redo=[];changed()}
 function stepPlay(now){
-  if(!playing)return;const p=playing,t=now-p.t0,last=S.frames.length-1;
-  if(p.i>=last){if(t>800){stopPlay();return}S.cur=last;draw()}
-  else if(t<LEAD){S.cur=p.i;draw()}
-  else if(t<LEAD+MOVE){draw(interp(p.i,p.i+1,ease((t-LEAD)/MOVE)))}
-  else{p.i++;p.t0=now}
+  if(!playing)return;const p=playing,t=now-p.t0,last=S.frames.length-1,si=shotInfo(p.i);
+  if(p.phase==='lead'){
+    S.cur=p.i;draw();
+    if(t>=LEAD){p.t0=now;p.phase=si?'shot':(p.i>=last?'hold':'move')}
+  }else if(p.phase==='shot'){
+    draw(shotItems(p.i,Math.min(1,t/SHOT)));
+    if(t>=SHOT){const d=shotOffset(si,1);p.from={id:si.ball.id,x:si.ball.x+d[0],y:si.ball.y+d[1]};p.t0=now;p.phase=p.i>=last?'hold':'move'}
+  }else if(p.phase==='move'){
+    draw(interp(p.i,p.i+1,Math.min(1,t/MOVE),p.from));
+    if(t>=MOVE){p.i++;p.t0=now;p.phase='lead';p.from=null}
+  }else{
+    S.cur=p.i;if(p.from)draw(shotItems(p.i,1));else draw();
+    if(t>=HOLD){stopPlay();return}
+  }
   requestAnimationFrame(stepPlay);
 }
 
@@ -454,7 +496,7 @@ $('#bExp').onclick=()=>{
 $('#bHelp').onclick=()=>openModal(h('h3',null,'Cómo usarla'),
   h('ul',null,
     h('li',null,'Elige un color abajo y toca (o arrastra) un número al campo. Arrastra para mover.'),
-    h('li',null,'Pase, Desmarque, Conducción y Línea: dibuja arrastrando en el campo.'),
+    h('li',null,'Pase, Desmarque, Conducción, Tiro y Línea: dibuja arrastrando en el campo. El Tiro es la flecha de doble línea para el disparo a puerta.'),
     h('li',null,'Para curvar una flecha: ☝ Mover, toca la flecha y arrastra el punto del medio. Los puntos de los extremos la alargan o acortan.'),
     h('li',null,'Zona: arrastra un rectángulo; con ☝ Mover puedes cambiarle el tamaño desde la esquina.'),
     h('li',null,'Cono, balón y porterías están en la bandeja. ↻ Girar rota la portería seleccionada.'),
